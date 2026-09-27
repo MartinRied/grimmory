@@ -22,11 +22,18 @@ Shelf — analogous to how default sort order already works today.
 
 1. Users can configure a column override for individual Libraries, Shelves,
    and Magic Shelves.
-2. An override, when present for a given entity, fully replaces the global
-   default for that entity — i.e. it specifies the complete visible/ordered
-   column list for that entity, not a partial adjustment merged with the
-   global default.
-3. An entity without an explicit column override uses the global default.
+2. A column override is one of several independent fields on that entity's
+   override record (alongside its existing sort and view-mode override
+   fields — see §4). An entity may have a column override without having a
+   sort or view-mode override, and vice versa. When an entity's column
+   override *is* set, it fully replaces the global default column list for
+   that entity — i.e. it specifies the complete visible/ordered column
+   list, not a partial adjustment merged with the global default. Its sort
+   and view-mode, if not separately overridden, still fall back to the
+   global default independently.
+3. An entity without a column override on its record (whether or not it
+   has other overridden fields) uses the global default column
+   configuration.
 4. Changing the global default must not retroactively change any existing
    per-entity override — overrides are independent snapshots once created.
 5. All Books and Unshelved Books are not entities that can have a column
@@ -35,29 +42,34 @@ Shelf — analogous to how default sort order already works today.
 ## 4. Settings page
 
 1. The current "Library & Shelf View & Sort Preferences" settings UI is
-   restructured into three sections:
-   - **General view preferences**: default view mode (grid/table) and any
-     other non-column, non-sort settings currently in that area (e.g.
-     auto-save metadata).
-   - **Visible columns & overrides**: configuring the global default column
-     visibility/order, and managing per-entity column overrides.
-   - **Sort preferences**: default sort, default sort overrides, and the
-     available/visible sort fields configuration — as today.
-2. The three sections are independent of each other in the UI: an entity
-   can have a column override without needing a sort override, and vice
-   versa. Each section manages its own list of entity overrides for its own
-   concern.
-3. The "Visible columns & overrides" section provides:
+   restructured into two sections:
+   - **General view preferences**: the default view mode (grid/table)
+     picker and any other non-column, non-sort settings currently in that
+     area (e.g. auto-save metadata). This section holds only *default*
+     pickers, not per-entity overrides.
+   - **Sort & Columns**: default sort, the available/visible sort fields
+     configuration, the global default column visibility/order, and a
+     single unified per-entity overrides table (see below). This section
+     also owns per-entity view-mode overrides, even though the *default*
+     view-mode picker itself lives in General — a short note in General
+     points here for that.
+2. Per-entity overrides live in one shared table/list, not three separate
+   lists: each row is one entity (Library/Shelf/Magic Shelf) with
+   independent controls for its sort override, its column override, and
+   its view-mode override. A row may have any subset of these three set —
+   e.g. a row with only a column override, inheriting sort and view mode
+   from the global default. This mirrors §3.2's per-field independence.
+3. The "Sort & Columns" section provides:
    - Configuration of the global default column visibility and order,
      including reordering the selected columns (not just toggling
-     visibility).
-   - A "reset to defaults" action for the global default column
-     configuration.
-   - Management of per-entity overrides: adding an override for a chosen
-     Library/Shelf/Magic Shelf, configuring that override's column
-     visibility and order (including reordering), and removing an override.
-   - A "reset to defaults" action for an individual override's column
-     configuration.
+     visibility), with a "reset to defaults" action.
+   - The existing default sort and visible-sort-fields configuration, as
+     today.
+   - A single overrides table: adding a row for a chosen
+     Library/Shelf/Magic Shelf, editing that row's sort configuration,
+     column configuration (visibility and order, including reordering),
+     and/or view mode independently, and removing the row (which clears
+     all of that entity's overridden fields together).
 
 ## 5. Book-browser toolbar (ad-hoc / quick configuration)
 
