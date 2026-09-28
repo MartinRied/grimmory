@@ -173,6 +173,32 @@
   font-weight: 500;
 }
 
+// Info banner shown inside the columns/sort popovers when the current
+// library/shelf/magic-shelf already has an active override for that
+// preference (set either from here or from Settings > Book Browser
+// Preferences directly).
+.entity-override-info {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4375rem;
+  padding: 0.5469rem 0.6563rem;
+  margin-bottom: 0.5469rem;
+  background: rgb(59 130 246 / 10%);
+  border: 1px solid var(--p-blue-400);
+  border-radius: 6px;
+  font-size: var(--app-text-xs);
+  color: var(--p-blue-400);
+  max-width: 280px;
+
+  a {
+    color: var(--p-blue-400);
+    font-weight: 600;
+    text-decoration: underline;
+    white-space: nowrap;
+  }
+}
+
 // Sort button wrapper
 .sort-button-wrapper {
   position: relative;

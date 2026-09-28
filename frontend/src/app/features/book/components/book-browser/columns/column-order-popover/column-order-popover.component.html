@@ -1,0 +1,62 @@
+<ng-container *transloco="let t; prefix: 'book.columnPref'">
+<div class="column-order-container">
+  <div class="column-order-header">
+    <span class="header-title">{{ t('columnOrder') }}</span>
+  </div>
+
+  <div
+    class="column-list"
+    cdkDropList
+    [cdkDropListData]="selectedColumns()"
+    (cdkDropListDropped)="onDrop($event)">
+    @for (column of selectedColumns(); track column.field; let i = $index) {
+      <div class="column-item" cdkDrag>
+        <div class="column-drag-handle" cdkDragHandle>
+          <i class="pi pi-bars"></i>
+        </div>
+        <span class="column-rank">{{ i + 1 }}.</span>
+        <span class="column-label">{{ column.header }}</span>
+        <div class="column-actions">
+          <button
+            type="button"
+            class="remove-btn"
+            (click)="onRemove(i)"
+            [pTooltip]="t('removeTooltip')"
+            tooltipPosition="top">
+            <i class="pi pi-times"></i>
+          </button>
+        </div>
+      </div>
+    }
+  </div>
+
+  @if (unusedOptions.length > 0) {
+    <div class="add-column-section">
+      <p-select
+        [options]="unusedOptions"
+        [(ngModel)]="selectedField"
+        optionLabel="header"
+        optionValue="field"
+        [placeholder]="t('addColumnPlaceholder')"
+        [style]="{ width: '100%' }"
+        size="small"
+        appendTo="body"
+        (onChange)="onAddField()">
+      </p-select>
+    </div>
+  }
+
+  @if (showSaveButton()) {
+    <div class="save-column-section">
+      <p-button
+        icon="pi pi-save"
+        [label]="saveButtonLabel() ?? t('saveAsDefault')"
+        size="small"
+        [outlined]="true"
+        [style]="{ width: '100%' }"
+        (onClick)="onSave()">
+      </p-button>
+    </div>
+  }
+</div>
+</ng-container>

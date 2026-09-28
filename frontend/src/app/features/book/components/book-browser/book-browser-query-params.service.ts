@@ -1,7 +1,7 @@
 import {Injectable, inject} from '@angular/core';
 import {ActivatedRoute, ParamMap, Router} from '@angular/router';
 import {SortDirection, SortOption} from '../../model/sort.model';
-import {BookFilterMode, EntityViewPreference, EntityViewPreferences, SortCriterion} from '../../../settings/user-management/user.service';
+import {BookFilterMode, EntityViewPreferences, findEntityOverride, SortCriterion} from '../../../settings/user-management/user.service';
 import {EntityType} from './book-browser.component';
 
 export const QUERY_PARAMS = {
@@ -66,22 +66,12 @@ export class BookBrowserQueryParamsService {
     // Parse filters
     const filters = this.deserializeFilters(filterParams);
 
-    // Determine effective preferences
+    // Determine effective preferences — each field falls back to `global`
+    // independently, since an override may set any subset of {sort, view,
+    // columns} (columns are resolved separately, by TableColumnPreferenceService).
     const globalPrefs = userPrefs?.global;
-    const currentEntityTypeStr = entityType?.toString().toUpperCase().replaceAll(' ', '_');
-    const override = userPrefs?.overrides?.find(o =>
-      o.entityType?.toUpperCase() === currentEntityTypeStr &&
-      o.entityId === entityId
-    );
-
-    const effectivePrefs: EntityViewPreference = override?.preferences ?? globalPrefs ?? {
-      sortKey: 'addedOn',
-      sortDir: 'ASC',
-      view: 'GRID',
-      coverSize: 1.0,
-      seriesCollapsed: false,
-      overlayBookType: true
-    };
+    const override = findEntityOverride(userPrefs?.overrides, entityType?.toString(), entityId);
+    const overridePrefs = override?.preferences;
 
     // Parse sort criteria - supports both legacy and new multi-sort format
     let sortCriteria: SortOption[];
@@ -103,9 +93,14 @@ export class BookBrowserQueryParamsService {
         }] : [];
       }
     } else {
-      // Use user preferences
-      if (effectivePrefs.sortCriteria && effectivePrefs.sortCriteria.length > 0) {
-        sortCriteria = effectivePrefs.sortCriteria.map((c: SortCriterion) => {
+      // Use user preferences: the override's own sortCriteria/sortKey take
+      // precedence over global's, per field, not as a whole object.
+      const effectiveSortCriteria =
+        (overridePrefs?.sortCriteria?.length ? overridePrefs.sortCriteria : undefined) ??
+        (globalPrefs?.sortCriteria?.length ? globalPrefs.sortCriteria : undefined);
+
+      if (effectiveSortCriteria && effectiveSortCriteria.length > 0) {
+        sortCriteria = effectiveSortCriteria.map((c: SortCriterion) => {
           const matchedSort = sortOptions.find(opt => opt.field === c.field);
           return {
             label: matchedSort?.label ?? c.field,
@@ -115,8 +110,8 @@ export class BookBrowserQueryParamsService {
         });
       } else {
         // Fall back to legacy single sort preference
-        const userSortKey = effectivePrefs.sortKey;
-        const userSortDir = effectivePrefs.sortDir?.toUpperCase() === 'DESC'
+        const userSortKey = overridePrefs?.sortKey ?? globalPrefs?.sortKey;
+        const userSortDir = (overridePrefs?.sortDir ?? globalPrefs?.sortDir)?.toUpperCase() === 'DESC'
           ? SortDirection.DESCENDING
           : SortDirection.ASCENDING;
         const matchedSort = sortOptions.find(opt => opt.field === userSortKey);
@@ -140,13 +135,15 @@ export class BookBrowserQueryParamsService {
     // For backward compatibility, expose the first sort as sortOption
     const sortOption = sortCriteria[0];
 
-    // Determine view mode
+    // Determine view mode — override's own `view` takes precedence over
+    // global's, independently of whether the override sets sort/columns.
+    const effectiveView = overridePrefs?.view ?? globalPrefs?.view;
     const viewModeFromToggle = fromParam === 'toggle';
     const viewMode = viewModeFromToggle
       ? (viewParam === VIEW_MODES.TABLE || viewParam === VIEW_MODES.GRID
         ? viewParam
         : VIEW_MODES.GRID)
-      : (effectivePrefs.view?.toLowerCase() ?? VIEW_MODES.GRID);
+      : (effectiveView?.toLowerCase() ?? VIEW_MODES.GRID);
 
     return {
       viewMode,

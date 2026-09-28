@@ -32,6 +32,46 @@
   @include settings.settings-item-header-standalone;
 }
 
+// Collapsible section headers (Default Shown Columns / Default Sort Columns / Available Sort Columns)
+.collapsible-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4375rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.setting-header-count {
+  font-weight: 500;
+  font-size: var(--app-text-sm);
+  color: var(--p-primary-color);
+}
+
+.expand-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary-color);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s;
+  flex-shrink: 0;
+
+  &:hover {
+    background: var(--ground-background);
+    color: var(--p-primary-color);
+  }
+
+  .pi {
+    font-size: var(--app-text-sm);
+  }
+}
+
 .setting-label {
   @include settings.settings-label;
 }
@@ -50,6 +90,7 @@
 
 .overrides-table {
   @include settings.settings-table;
+  margin-top: 0.875rem;
 }
 
 .setting-actions {
@@ -74,11 +115,6 @@
 }
 
 // Visible sort fields editor styles
-.sort-field-count {
-  font-weight: 500;
-  color: var(--p-primary-color);
-}
-
 .sort-field-order-editor {
   margin-top: 0.6563rem;
 }
@@ -190,6 +226,14 @@
 }
 
 .sort-field-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4375rem;
+}
+
+// Wraps an "Edit Sort"/"Edit Columns" popover-trigger button together with its
+// per-row reset-to-default button in the overrides table.
+.override-cell-actions {
   display: flex;
   align-items: center;
   gap: 0.4375rem;

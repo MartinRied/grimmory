@@ -29,6 +29,7 @@ export class MultiSortPopoverComponent {
   @Input() sortCriteria: SortOption[] = [];
   @Input() availableSortOptions: SortOption[] = [];
   @Input() showSaveButton = false;
+  @Input() saveButtonLabel?: string;
 
   @Output() criteriaChange = new EventEmitter<SortOption[]>();
   @Output() saveSortConfig = new EventEmitter<SortOption[]>();

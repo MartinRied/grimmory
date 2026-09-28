@@ -182,6 +182,49 @@ describe('BookBrowserQueryParamsService', () => {
     });
   });
 
+  it('falls back to global sort/view per-field when an override only sets columns', () => {
+    const userPrefs: EntityViewPreferences = {
+      global: {
+        sortKey: 'title',
+        sortDir: 'DESC',
+        view: 'TABLE',
+        coverSize: 1,
+        seriesCollapsed: false,
+        overlayBookType: true
+      },
+      overrides: [
+        {
+          entityType: 'LIBRARY',
+          entityId: 7,
+          preferences: {
+            // Only columns is overridden — sortKey/sortDir/sortCriteria/view are
+            // all absent, so both should fall back to `global`, independently.
+            columns: ['title', 'authors'],
+            coverSize: 1,
+            seriesCollapsed: false,
+            overlayBookType: true
+          }
+        }
+      ]
+    };
+
+    const result = service.parseQueryParams(
+      convertToParamMap({}),
+      userPrefs,
+      EntityType.LIBRARY,
+      7,
+      sortOptions,
+      'and'
+    );
+
+    expect(result.viewMode).toBe(VIEW_MODES.TABLE);
+    expect(result.sortOption).toEqual({
+      label: 'Title',
+      field: 'title',
+      direction: SortDirection.DESCENDING
+    });
+  });
+
   it('serializes and deserializes sorts and filters while ignoring malformed input', () => {
     expect(service.serializeSort([
       {label: 'Title', field: 'title', direction: SortDirection.ASCENDING},

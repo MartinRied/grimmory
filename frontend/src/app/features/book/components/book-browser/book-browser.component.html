@@ -71,27 +71,26 @@
                 </i>
               </a>
               <p-popover #columnPopover [dismissable]="true" appendTo="body">
-                <div class="column-popover-content">
-                  <p-multiSelect
-                    optionLabel="header"
-                    [options]="columnPreferenceService.allColumns"
-                    [ngModel]="visibleColumns()"
-                    (ngModelChange)="onVisibleColumnsChange($event)"
-                    display="chip"
-                    [placeholder]="t('placeholder.selectColumns')"
-                    [style]="{ width: '100%' }"
-                    [filter]="true"
-                    [showClear]="true"
-                  ></p-multiSelect>
-                </div>
-                <div class="column-popover-footer">
-                  <p>{{ t('labels.setAsDefault') }}</p>
-                  <p-button
-                    [label]="t('labels.save')"
-                    outlined
-                    size="small"
-                    (click)="columnPreferenceService.saveVisibleColumns(visibleColumns())"></p-button>
-                </div>
+                @if (hasColumnsOverride()) {
+                  <div class="entity-override-info">
+                    <i class="pi pi-info-circle" aria-hidden="true"></i>
+                    <span>{{ t('labels.customColumnOverrideInfo', {entityType: entityType()?.toLowerCase() ?? ''}) }}</span>
+                    <a
+                      [routerLink]="['/settings']"
+                      [queryParams]="{tab: 'view'}"
+                      (click)="columnPopover.hide()">
+                      {{ t('labels.manageOverride') }}
+                    </a>
+                  </div>
+                }
+                <app-column-order-popover
+                  [selectedColumns]="visibleColumns()"
+                  [availableColumns]="columnPreferenceService.allColumns"
+                  [showSaveButton]="true"
+                  [saveButtonLabel]="saveButtonLabel()"
+                  (columnsChange)="onVisibleColumnsChange($event)"
+                  (saveColumnConfig)="onSaveColumnConfig($event)">
+                </app-column-order-popover>
               </p-popover>
             </div>
           }
@@ -163,10 +162,23 @@
               }
             </a>
             <p-popover #sortPopover [dismissable]="true" appendTo="body">
+              @if (hasSortOverride()) {
+                <div class="entity-override-info">
+                  <i class="pi pi-info-circle" aria-hidden="true"></i>
+                  <span>{{ t('labels.customSortOverrideInfo', {entityType: entityType()?.toLowerCase() ?? ''}) }}</span>
+                  <a
+                    [routerLink]="['/settings']"
+                    [queryParams]="{tab: 'view'}"
+                    (click)="sortPopover.hide()">
+                    {{ t('labels.manageOverride') }}
+                  </a>
+                </div>
+              }
               <app-multi-sort-popover
                 [sortCriteria]="this.bookSorter.selectedSortCriteria"
                 [availableSortOptions]="visibleSortOptions()"
                 [showSaveButton]="canSaveSort()"
+                [saveButtonLabel]="saveButtonLabel()"
                 (criteriaChange)="onSortCriteriaChange($event)"
                 (saveSortConfig)="onSaveSortConfig($event)">
               </app-multi-sort-popover>

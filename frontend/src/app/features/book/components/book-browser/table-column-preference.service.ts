@@ -1,92 +1,56 @@
-import {inject, Injectable, signal} from '@angular/core';
-import {MessageService} from '@openng/optimus-ui/api';
+import {inject, Injectable} from '@angular/core';
 import {TranslocoService} from '@jsverse/transloco';
-import {TableColumnPreference, UserService} from '../../../settings/user-management/user.service';
+import {
+  DEFAULT_VISIBLE_COLUMNS,
+  EntityViewPreferences,
+  findEntityOverride,
+  TableColumnPreference,
+} from '../../../settings/user-management/user.service';
+import {EntityType} from './book-browser.component';
 
 @Injectable({
   providedIn: 'root'
 })
 export class TableColumnPreferenceService {
-  private readonly userService = inject(UserService);
-  private readonly messageService = inject(MessageService);
   private readonly t = inject(TranslocoService);
 
-  private readonly _preferences = signal<TableColumnPreference[]>([]);
-  readonly preferences = this._preferences.asReadonly();
-
-  private readonly allAvailableFields = [
-    'readStatus', 'title', 'authors', 'publisher', 'seriesName', 'seriesNumber',
-    'categories', 'publishedDate', 'lastReadTime', 'addedOn', 'fileName', 'fileSizeKb',
-    'language', 'isbn', 'pageCount', 'amazonRating', 'amazonReviewCount',
-    'goodreadsRating', 'goodreadsReviewCount', 'hardcoverRating', 'hardcoverReviewCount',
-    'ranobedbRating',
-  ];
-
-  private readonly fallbackPreferences: TableColumnPreference[] = this.allAvailableFields.map((field, index) => ({
-    field,
-    visible: true,
-    order: index
-  }));
-
-  initPreferences(savedPrefs: TableColumnPreference[] | undefined): void {
-    const effectivePrefs = savedPrefs?.length ? savedPrefs : this.fallbackPreferences;
-    this._preferences.set(this.mergeWithAllColumns(effectivePrefs));
-  }
+  private readonly allAvailableFields = DEFAULT_VISIBLE_COLUMNS;
 
   get allColumns(): { field: string; header: string }[] {
     return this.allAvailableFields.map(field => ({
       field,
-      header: this.t.translate(`book.columnPref.columns.${field}`)
+      header: this.headerFor(field)
     }));
   }
 
-  get visibleColumns(): { field: string; header: string }[] {
-    return this.preferences()
+  headerFor(field: string): string {
+    return this.t.translate(`book.columnPref.columns.${field}`);
+  }
+
+  /**
+   * Resolves the visible, ordered column fields for the given entity:
+   * the entity's own override wins if it defines `columns`, else the
+   * global default, else the legacy global-only `tableColumnPreference`
+   * setting (pre-dates per-entity overrides), else the built-in default.
+   */
+  resolveVisibleFields(
+    prefs: EntityViewPreferences | undefined,
+    entityType: EntityType | undefined,
+    entityId: number | undefined,
+    legacyTableColumnPreference: TableColumnPreference[] | undefined
+  ): string[] {
+    const override = findEntityOverride(prefs?.overrides, entityType?.toString(), entityId);
+    return override?.preferences?.columns
+      ?? prefs?.global?.columns
+      ?? this.legacyToFieldList(legacyTableColumnPreference)
+      ?? DEFAULT_VISIBLE_COLUMNS;
+  }
+
+  private legacyToFieldList(legacy: TableColumnPreference[] | undefined): string[] | undefined {
+    if (!legacy?.length) return undefined;
+    return [...legacy]
       .filter(pref => pref.visible)
       .sort((a, b) => a.order - b.order)
-      .map(pref => ({
-        field: pref.field,
-        header: this.t.translate(`book.columnPref.columns.${pref.field}`)
-      }));
-  }
-
-  saveVisibleColumns(selectedColumns: { field: string }[]): void {
-    const selectedFieldSet = new Set(selectedColumns.map(c => c.field));
-
-    const updatedPreferences: TableColumnPreference[] = this.allAvailableFields.map((field, index) => {
-      const selectionIndex = selectedColumns.findIndex(c => c.field === field);
-      return {
-        field,
-        visible: selectedFieldSet.has(field),
-        order: selectionIndex >= 0 ? selectionIndex : index
-      };
-    });
-
-    this._preferences.set(updatedPreferences);
-
-    const currentUser = this.userService.getCurrentUser();
-    if (!currentUser) return;
-
-    this.userService.updateUserSetting(currentUser.id, 'tableColumnPreference', updatedPreferences);
-
-    this.messageService.add({
-      severity: 'success',
-      summary: this.t.translate('book.columnPref.toast.savedSummary'),
-      detail: this.t.translate('book.columnPref.toast.savedDetail'),
-      life: 1500
-    });
-  }
-
-  private mergeWithAllColumns(savedPrefs: TableColumnPreference[]): TableColumnPreference[] {
-    const savedPrefMap = new Map(savedPrefs.map(p => [p.field, p]));
-
-    return this.allAvailableFields.map((field, index) => {
-      const saved = savedPrefMap.get(field);
-      return {
-        field,
-        visible: saved?.visible ?? true,
-        order: saved?.order ?? index
-      };
-    });
+      .map(pref => pref.field);
   }
 }

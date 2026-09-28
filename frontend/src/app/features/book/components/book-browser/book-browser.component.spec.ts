@@ -202,9 +202,8 @@ function createHarness(options?: {
         provide: TableColumnPreferenceService,
         useValue: {
           allColumns: [],
-          visibleColumns: [],
-          initPreferences: vi.fn(),
-          saveVisibleColumns: vi.fn(),
+          headerFor: vi.fn((field: string) => field),
+          resolveVisibleFields: vi.fn(() => []),
         },
       },
       {
@@ -377,6 +376,33 @@ describe('BookBrowserComponent', () => {
 
     expect(component.currentViewMode()).toBe(VIEW_MODES.TABLE);
     expect(queryParamsService.updateViewMode).toHaveBeenCalledWith(VIEW_MODES.TABLE);
+  });
+
+  it('saves column configuration as an entity override for a library', () => {
+    const {component} = createHarness();
+    const userService = TestBed.inject(UserService) as unknown as {
+      getCurrentUser: ReturnType<typeof vi.fn>;
+      updateUserSetting: ReturnType<typeof vi.fn>;
+    };
+
+    component.onSaveColumnConfig([
+      {field: 'title', header: 'Title'},
+      {field: 'authors', header: 'Authors'}
+    ]);
+
+    expect(userService.updateUserSetting).toHaveBeenCalledWith(
+      1,
+      'entityViewPreferences',
+      expect.objectContaining({
+        overrides: [
+          expect.objectContaining({
+            entityType: 'LIBRARY',
+            entityId: 1,
+            preferences: expect.objectContaining({columns: ['title', 'authors']})
+          })
+        ]
+      })
+    );
   });
 
   it('updates books when sorting changes', () => {

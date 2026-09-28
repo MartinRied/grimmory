@@ -26,6 +26,22 @@ export interface EntityViewPreference {
   sortDir: 'ASC' | 'DESC';
   sortCriteria?: SortCriterion[];
   view: 'GRID' | 'TABLE';
+  columns?: string[];
+  coverSize: number;
+  seriesCollapsed: boolean;
+  overlayBookType: boolean;
+}
+
+// Per-entity override fields are independently optional: an override may
+// set any subset of {sort, view, columns}. An unset field falls back to
+// `EntityViewPreference.global`'s same field at resolution time (see
+// book-browser-query-params.service.ts and table-column-preference.service.ts).
+export interface OverrideDetails {
+  sortKey?: string;
+  sortDir?: 'ASC' | 'DESC';
+  sortCriteria?: SortCriterion[];
+  view?: 'GRID' | 'TABLE';
+  columns?: string[];
   coverSize: number;
   seriesCollapsed: boolean;
   overlayBookType: boolean;
@@ -34,7 +50,19 @@ export interface EntityViewPreference {
 export interface EntityViewPreferenceOverride {
   entityType: 'LIBRARY' | 'SHELF' | 'MAGIC_SHELF';
   entityId: number;
-  preferences: EntityViewPreference;
+  preferences: OverrideDetails;
+}
+
+export function findEntityOverride<T extends { entityType: string; entityId: number }>(
+  overrides: T[] | undefined,
+  entityType: string | undefined,
+  entityId: number | null | undefined
+): T | undefined {
+  const normalizedEntityType = entityType?.toString().toUpperCase().replaceAll(' ', '_');
+  return overrides?.find(o =>
+    o.entityType?.toUpperCase() === normalizedEntityType &&
+    o.entityId === entityId
+  );
 }
 
 export interface SidebarLibrarySorting {
@@ -293,6 +321,14 @@ export const DEFAULT_VISIBLE_SORT_FIELDS: string[] = [
   'author', 'authorSurnameVorname', 'seriesNumber',
   'lastReadTime', 'personalRating', 'addedOn',
   'fileSizeKb', 'locked', 'publisher', 'publishedDate', 'pageCount', 'random'
+];
+
+export const DEFAULT_VISIBLE_COLUMNS: string[] = [
+  'readStatus', 'title', 'authors', 'publisher', 'seriesName', 'seriesNumber',
+  'categories', 'publishedDate', 'lastReadTime', 'addedOn', 'fileName', 'fileSizeKb',
+  'language', 'isbn', 'pageCount', 'amazonRating', 'amazonReviewCount',
+  'goodreadsRating', 'goodreadsReviewCount', 'hardcoverRating', 'hardcoverReviewCount',
+  'ranobedbRating',
 ];
 
 export interface UserSettings {

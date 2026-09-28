@@ -5,7 +5,14 @@ import {Button} from '@openng/optimus-ui/button';
 import {MessageService} from '@openng/optimus-ui/api';
 import {Select} from '@openng/optimus-ui/select';
 import {TableModule} from '@openng/optimus-ui/table';
-import {DEFAULT_VISIBLE_SORT_FIELDS, SortCriterion, User, UserService} from '../../user-management/user.service';
+import {
+  DEFAULT_VISIBLE_COLUMNS,
+  DEFAULT_VISIBLE_SORT_FIELDS,
+  EntityViewPreferences,
+  OverrideDetails,
+  SortCriterion,
+  UserService
+} from '../../user-management/user.service';
 import {LibraryService} from '../../../book/service/library.service';
 import {ShelfService} from '../../../book/service/shelf.service';
 import {MagicShelfService} from '../../../magic-shelf/service/magic-shelf.service';
@@ -16,8 +23,21 @@ import {ToggleSwitch} from '@openng/optimus-ui/toggleswitch';
 import {TranslocoDirective, TranslocoService} from '@jsverse/transloco';
 import {SortDirection, SortOption} from '../../../book/model/sort.model';
 import {MultiSortPopoverComponent} from '../../../book/components/book-browser/sorting/multi-sort-popover/multi-sort-popover.component';
+import {ColumnOrderPopoverComponent, TableColumnOption} from '../../../book/components/book-browser/columns/column-order-popover/column-order-popover.component';
+import {TableColumnPreferenceService} from '../../../book/components/book-browser/table-column-preference.service';
 import {Popover} from '@openng/optimus-ui/popover';
 import {CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, moveItemInArray} from '@angular/cdk/drag-drop';
+
+interface OverrideRow {
+  entityType: 'LIBRARY' | 'SHELF' | 'MAGIC_SHELF';
+  library: number;
+  // undefined means "not overridden for this entity — inherits from global"
+  sortCriteria: SortCriterion[] | undefined;
+  sortCriteriaAsOptions: SortOption[];
+  columns: string[] | undefined;
+  columnsAsOptions: TableColumnOption[];
+  view: 'GRID' | 'TABLE' | undefined;
+}
 
 @Component({
   selector: 'app-view-preferences',
@@ -31,6 +51,7 @@ import {CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, moveItemInArray} from 
     ToggleSwitch,
     TranslocoDirective,
     MultiSortPopoverComponent,
+    ColumnOrderPopoverComponent,
     Popover,
     CdkDropList,
     CdkDrag,
@@ -77,7 +98,14 @@ export class ViewPreferencesComponent implements OnInit {
 
   entityTypeOptions: {label: string; value: string; translationKey: string}[] = [];
 
-  viewModeOptions: {label: string; value: string; translationKey: string}[] = [];
+  // Default view mode select (Grid/Table only — the per-row override select
+  // below has its own separate options with a third "(Use Default)" entry).
+  viewModeOptions: {label: string; value: 'GRID' | 'TABLE'}[] = [];
+
+  // Options for the per-row override view-mode select — includes a third
+  // "(Use Default)" option (value: undefined) alongside Grid/Table, since an
+  // override row's view mode is now independently optional.
+  overrideViewModeOptions: {label: string; value: 'GRID' | 'TABLE' | undefined}[] = [];
 
   get libraryOptions(): { label: string; value: number }[] {
     return this.libraryService.libraries()
@@ -98,12 +126,16 @@ export class ViewPreferencesComponent implements OnInit {
   selectedSort: string = 'title';
   selectedSortDir: 'ASC' | 'DESC' = 'ASC';
   selectedView: 'GRID' | 'TABLE' = 'GRID';
-  autoSaveMetadata: boolean = false;
+  autoSaveMetadata = false;
   sortCriteria: SortCriterion[] = [];
 
   // SortOption[] versions for the multi-sort-popover component
   globalSortAsOptions: SortOption[] = [];
   allSortAsOptions: SortOption[] = [];
+
+  // Global default columns configuration
+  columns: string[] = [];
+  columnsAsOptions: TableColumnOption[] = [];
 
   // Visible sort fields configuration
   visibleSortFields: string[] = [];
@@ -111,19 +143,20 @@ export class ViewPreferencesComponent implements OnInit {
   readonly minSortFields = 3;
   readonly maxSortFields = 27;
 
+  // Collapsible state for the three Book Browser Preferences sub-sections
+  // (collapsed by default; each header shows a live "(x of y selected)" summary regardless of state)
+  defaultColumnsExpanded = false;
+  defaultSortExpanded = false;
+  visibleSortFieldsExpanded = false;
+
+  // Override Management is collapsed by default only when there are no overrides yet;
+  // once overrides exist, start expanded so the table is immediately visible.
+  overrideManagementExpanded = false;
+
   private readonly sortFieldList = viewChild<ElementRef<HTMLElement>>('sortFieldList');
 
-  overrides: {
-    entityType: 'LIBRARY' | 'SHELF' | 'MAGIC_SHELF';
-    library: number;
-    sort: string;
-    sortDir: 'ASC' | 'DESC';
-    sortCriteria: SortCriterion[];
-    sortCriteriaAsOptions: SortOption[];
-    view: 'GRID' | 'TABLE';
-  }[] = [];
+  overrides: OverrideRow[] = [];
 
-  private user: User | null = null;
   private readonly destroyRef = inject(DestroyRef);
   private readonly injector = inject(Injector);
 
@@ -132,6 +165,7 @@ export class ViewPreferencesComponent implements OnInit {
   private magicShelfService = inject(MagicShelfService);
   private userService = inject(UserService);
   private messageService = inject(MessageService);
+  protected columnPreferenceService = inject(TableColumnPreferenceService);
   private readonly currentUser = this.userService.currentUser;
   private hasInitializedPreferences = false;
 
@@ -145,8 +179,10 @@ export class ViewPreferencesComponent implements OnInit {
         direction: SortDirection.ASCENDING
       }));
       this.globalSortAsOptions = this.toSortOptions(this.sortCriteria);
+      this.columnsAsOptions = this.toColumnOptions(this.columns);
       this.overrides.forEach(o => {
-        o.sortCriteriaAsOptions = this.toSortOptions(o.sortCriteria);
+        o.sortCriteriaAsOptions = this.toSortOptions(o.sortCriteria ?? []);
+        o.columnsAsOptions = this.toColumnOptions(o.columns ?? []);
       });
     });
 
@@ -157,7 +193,6 @@ export class ViewPreferencesComponent implements OnInit {
       }
 
       this.hasInitializedPreferences = true;
-      this.user = user;
       const prefs = user.userSettings?.entityViewPreferences;
       const global = prefs?.global;
       this.selectedSort = global?.sortKey ?? 'title';
@@ -178,6 +213,9 @@ export class ViewPreferencesComponent implements OnInit {
       }));
       this.globalSortAsOptions = this.toSortOptions(this.sortCriteria);
 
+      this.columns = global?.columns ?? [...DEFAULT_VISIBLE_COLUMNS];
+      this.columnsAsOptions = this.toColumnOptions(this.columns);
+
       this.visibleSortFields = user.userSettings?.visibleSortFields
         ? [...user.userSettings.visibleSortFields]
         : [...DEFAULT_VISIBLE_SORT_FIELDS];
@@ -185,17 +223,21 @@ export class ViewPreferencesComponent implements OnInit {
       this.overrides = (prefs?.overrides ?? []).map(override => {
         const sortCriteria = override.preferences.sortCriteria?.length
           ? [...override.preferences.sortCriteria]
-          : [{field: override.preferences.sortKey, direction: override.preferences.sortDir ?? 'ASC'} as SortCriterion];
+          : override.preferences.sortKey
+            ? [{field: override.preferences.sortKey, direction: override.preferences.sortDir ?? 'ASC'} as SortCriterion]
+            : undefined;
+        const columns = override.preferences.columns ? [...override.preferences.columns] : undefined;
         return {
           entityType: override.entityType,
           library: override.entityId,
-          sort: override.preferences.sortKey,
-          sortDir: override.preferences.sortDir ?? 'ASC',
           sortCriteria,
-          sortCriteriaAsOptions: this.toSortOptions(sortCriteria),
-          view: override.preferences.view ?? 'GRID'
+          sortCriteriaAsOptions: this.toSortOptions(sortCriteria ?? []),
+          columns,
+          columnsAsOptions: this.toColumnOptions(columns ?? []),
+          view: override.preferences.view
         };
       });
+      this.overrideManagementExpanded = this.overrides.length > 0;
     }, {injector: this.injector});
   }
 
@@ -210,9 +252,14 @@ export class ViewPreferencesComponent implements OnInit {
       {label: this.t.translate('settingsView.librarySort.entityShelf'), value: 'SHELF', translationKey: 'entityShelf'},
       {label: this.t.translate('settingsView.librarySort.entityMagicShelf'), value: 'MAGIC_SHELF', translationKey: 'entityMagicShelf'}
     ];
+    this.overrideViewModeOptions = [
+      {label: this.t.translate('settingsView.librarySort.useDefault'), value: undefined},
+      {label: this.t.translate('settingsView.librarySort.viewGrid'), value: 'GRID'},
+      {label: this.t.translate('settingsView.librarySort.viewTable'), value: 'TABLE'}
+    ];
     this.viewModeOptions = [
-      {label: this.t.translate('settingsView.librarySort.viewGrid'), value: 'GRID', translationKey: 'viewGrid'},
-      {label: this.t.translate('settingsView.librarySort.viewTable'), value: 'TABLE', translationKey: 'viewTable'}
+      {label: this.t.translate('settingsView.librarySort.viewGrid'), value: 'GRID'},
+      {label: this.t.translate('settingsView.librarySort.viewTable'), value: 'TABLE'}
     ];
   }
 
@@ -250,15 +297,14 @@ export class ViewPreferencesComponent implements OnInit {
   addOverride(): void {
     const next = this.availableLibraries[0];
     if (next) {
-      const defaultCriteria: SortCriterion[] = [{field: 'title', direction: 'ASC'}];
       this.overrides.push({
         entityType: next.entityType,
         library: next.value,
-        sort: 'title',
-        sortDir: 'ASC',
-        sortCriteria: defaultCriteria,
-        sortCriteriaAsOptions: this.toSortOptions(defaultCriteria),
-        view: 'GRID'
+        sortCriteria: undefined,
+        sortCriteriaAsOptions: [],
+        columns: undefined,
+        columnsAsOptions: [],
+        view: undefined
       });
     }
   }
@@ -283,6 +329,10 @@ export class ViewPreferencesComponent implements OnInit {
     }));
   }
 
+  private toColumnOptions(fields: string[]): TableColumnOption[] {
+    return fields.map(field => ({field, header: this.columnPreferenceService.headerFor(field)}));
+  }
+
   onGlobalSortCriteriaChange(criteria: SortOption[]): void {
     this.globalSortAsOptions = criteria;
     this.sortCriteria = this.toSortCriteria(criteria);
@@ -292,8 +342,35 @@ export class ViewPreferencesComponent implements OnInit {
   onOverrideSortCriteriaChange(index: number, criteria: SortOption[]): void {
     this.overrides[index].sortCriteriaAsOptions = criteria;
     this.overrides[index].sortCriteria = this.toSortCriteria(criteria);
-    this.overrides[index].sort = criteria[0]?.field ?? 'title';
-    this.overrides[index].sortDir = criteria[0]?.direction === SortDirection.ASCENDING ? 'ASC' : 'DESC';
+  }
+
+  onGlobalColumnsChange(columns: TableColumnOption[]): void {
+    this.columnsAsOptions = columns;
+    this.columns = columns.map(c => c.field);
+  }
+
+  onOverrideColumnsChange(index: number, columns: TableColumnOption[]): void {
+    this.overrides[index].columnsAsOptions = columns;
+    this.overrides[index].columns = columns.map(c => c.field);
+  }
+
+  // Clears just this row's sort-criteria override back to "inherit from global"
+  // (undefined), without touching its columns or view override.
+  resetOverrideSort(index: number): void {
+    this.overrides[index].sortCriteria = undefined;
+    this.overrides[index].sortCriteriaAsOptions = [];
+  }
+
+  // Clears just this row's columns override back to "inherit from global"
+  // (undefined), without touching its sort or view override.
+  resetOverrideColumns(index: number): void {
+    this.overrides[index].columns = undefined;
+    this.overrides[index].columnsAsOptions = [];
+  }
+
+  resetColumnsToDefaults(): void {
+    this.columns = [...DEFAULT_VISIBLE_COLUMNS];
+    this.columnsAsOptions = this.toColumnOptions(this.columns);
   }
 
   private syncLegacySort(): void {
@@ -323,6 +400,33 @@ export class ViewPreferencesComponent implements OnInit {
     });
   }
 
+  // "(x of y selected)" summary for the Default Shown Columns section header —
+  // x = currently selected default columns, y = total columns available to choose from.
+  get columnSelectionCountText(): string {
+    return this.t.translate('settingsView.librarySort.sortFieldCount', {
+      count: this.columns.length,
+      total: this.columnPreferenceService.allColumns.length
+    });
+  }
+
+  // "(x of y selected)" summary for the Default Sort Columns section header —
+  // x = active sort criteria, y = total sortable fields available to add as a criterion.
+  // Sort criteria are drawn from the same bounded pool as visible sort fields (each field can
+  // only appear once per criteria list), so the "selected out of total" framing still holds.
+  get sortCriteriaSelectionCountText(): string {
+    return this.t.translate('settingsView.librarySort.sortFieldCount', {
+      count: this.sortCriteria.length,
+      total: this.sortOptions.length
+    });
+  }
+
+  // "(n overrides configured)" summary for the Override Management section header.
+  get overrideCountText(): string {
+    return this.t.translate('settingsView.librarySort.overrideCount', {
+      count: this.overrides.length
+    });
+  }
+
   onSortFieldDrop(event: CdkDragDrop<string[]>): void {
     moveItemInArray(this.visibleSortFields, event.previousIndex, event.currentIndex);
   }
@@ -349,15 +453,19 @@ export class ViewPreferencesComponent implements OnInit {
   }
 
   saveSettings(): void {
-    if (!this.user) return;
+    const user = this.userService.getCurrentUser();
+    if (!user) return;
 
-    const prefs = structuredClone(this.user.userSettings.entityViewPreferences ?? {});
+    const prefs: EntityViewPreferences = structuredClone(
+      user.userSettings.entityViewPreferences ?? {global: {sortKey: 'title', sortDir: 'ASC', view: 'GRID', coverSize: 1.0, seriesCollapsed: false, overlayBookType: true}, overrides: []}
+    );
 
     prefs.global = {
       ...prefs.global,
       sortKey: this.selectedSort,
       sortDir: this.selectedSortDir,
       sortCriteria: [...this.sortCriteria],
+      columns: [...this.columns],
       view: this.selectedView
     };
 
@@ -366,24 +474,34 @@ export class ViewPreferencesComponent implements OnInit {
         p.entityId === o.library && p.entityType === o.entityType
       )?.preferences;
 
+      const preferences: OverrideDetails = {
+        coverSize: existing?.coverSize ?? 1.0,
+        seriesCollapsed: existing?.seriesCollapsed ?? false,
+        overlayBookType: existing?.overlayBookType ?? true
+      };
+
+      if (o.sortCriteria !== undefined) {
+        preferences.sortKey = o.sortCriteria[0]?.field;
+        preferences.sortDir = o.sortCriteria[0]?.direction;
+        preferences.sortCriteria = [...o.sortCriteria];
+      }
+      if (o.columns !== undefined) {
+        preferences.columns = [...o.columns];
+      }
+      if (o.view !== undefined) {
+        preferences.view = o.view;
+      }
+
       return {
         entityType: o.entityType,
         entityId: o.library,
-        preferences: {
-          sortKey: o.sortCriteria[0]?.field ?? o.sort,
-          sortDir: o.sortCriteria[0]?.direction ?? o.sortDir,
-          sortCriteria: [...o.sortCriteria],
-          view: o.view,
-          coverSize: existing?.coverSize ?? 1.0,
-          seriesCollapsed: existing?.seriesCollapsed ?? false,
-          overlayBookType: existing?.overlayBookType ?? true
-        }
+        preferences
       };
     });
 
-    this.userService.updateUserSetting(this.user.id, 'entityViewPreferences', prefs);
-    this.userService.updateUserSetting(this.user.id, 'autoSaveMetadata', this.autoSaveMetadata);
-    this.userService.updateUserSetting(this.user.id, 'visibleSortFields', this.visibleSortFields);
+    this.userService.updateUserSetting(user.id, 'entityViewPreferences', prefs);
+    this.userService.updateUserSetting(user.id, 'visibleSortFields', this.visibleSortFields);
+    this.userService.updateUserSetting(user.id, 'autoSaveMetadata', this.autoSaveMetadata);
 
     this.messageService.add({
       severity: 'success',

@@ -1,6 +1,6 @@
 import {AfterViewInit, ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, computed, effect, inject, signal, untracked, viewChild} from '@angular/core';
 import {takeUntilDestroyed, toObservable, toSignal} from '@angular/core/rxjs-interop';
-import {ActivatedRoute} from '@angular/router';
+import {ActivatedRoute, RouterLink} from '@angular/router';
 import {ConfirmationService, MenuItem, MessageService} from '@openng/optimus-ui/api';
 import {PageTitleService} from '../../../../shared/service/page-title.service';
 import {BookService} from '../../service/book.service';
@@ -24,7 +24,7 @@ import {InputText} from '@openng/optimus-ui/inputtext';
 import {FormsModule} from '@angular/forms';
 import {BookFilterComponent} from './book-filter/book-filter.component';
 import {Tooltip} from '@openng/optimus-ui/tooltip';
-import {BookFilterMode, DEFAULT_VISIBLE_SORT_FIELDS, EntityViewPreferences, SortCriterion, UserService} from '../../../settings/user-management/user.service';
+import {BookFilterMode, DEFAULT_VISIBLE_SORT_FIELDS, EntityViewPreferenceOverride, EntityViewPreferences, findEntityOverride, SortCriterion, UserService} from '../../../settings/user-management/user.service';
 import {SeriesCollapseFilter} from './filters/SeriesCollapseFilter';
 import {CoverScalePreferenceService} from './cover-scale-preference.service';
 import {BookSorter} from './sorting/BookSorter';
@@ -32,8 +32,8 @@ import {BookDialogHelperService} from './book-dialog-helper.service';
 import {Checkbox} from '@openng/optimus-ui/checkbox';
 import {Popover} from '@openng/optimus-ui/popover';
 import {Divider} from '@openng/optimus-ui/divider';
-import {MultiSelect} from '@openng/optimus-ui/multiselect';
 import {TableColumnPreferenceService} from './table-column-preference.service';
+import {ColumnOrderPopoverComponent, TableColumnOption} from './columns/column-order-popover/column-order-popover.component';
 import {TieredMenu} from '@openng/optimus-ui/tieredmenu';
 import {Badge} from '@openng/optimus-ui/badge';
 import {BookMenuService} from '../../service/book-menu.service';
@@ -87,8 +87,8 @@ const MOBILE_COLUMNS_STORAGE_KEY = 'mobileColumnsPreference';
   imports: [
     Button, ButtonDirective, BookCardComponent, InputText, FormsModule,
     BookTableComponent, BookFilterComponent, Tooltip, NgClass, Popover,
-    Checkbox, Divider, MultiSelect, TieredMenu, Badge, MultiSortPopoverComponent, TranslocoDirective, TranslocoPipe, GridDensityButtonsComponent,
-    LibraryShelfMenuComponent, AppMenuTriggerDirective,
+    Checkbox, Divider, TieredMenu, Badge, MultiSortPopoverComponent, ColumnOrderPopoverComponent, TranslocoDirective, TranslocoPipe, GridDensityButtonsComponent,
+    LibraryShelfMenuComponent, AppMenuTriggerDirective, RouterLink,
   ],
   providers: [SeriesCollapseFilter],
 })
@@ -532,6 +532,55 @@ export class BookBrowserComponent implements AfterViewInit {
            entityType === EntityType.UNSHELVED;
   });
 
+  // Toolbar "Save as Default" buttons (sort + columns) actually save to
+  // different places depending on context: the global default when
+  // viewing All Books/Unshelved, or an override for the current
+  // library/shelf/magic-shelf otherwise. Spell that out in the button
+  // label so it isn't ambiguous.
+  readonly saveButtonLabel = computed(() => {
+    const entityType = this.entityType();
+    if (entityType === EntityType.ALL_BOOKS || entityType === EntityType.UNSHELVED) {
+      return this.t.translate('book.browser.labels.saveAsGlobalDefault');
+    }
+    return this.t.translate('book.browser.labels.saveOverrideForEntity', {
+      entityType: entityType?.toLowerCase() ?? ''
+    });
+  });
+
+  // The toolbar's columns/sort popovers double as an entry point for creating
+  // per-entity overrides (see saveButtonLabel above), but overrides can also be
+  // set up independently from the Settings page's "Book Browser Preferences"
+  // override table. When the currently viewed library/shelf/magic-shelf already
+  // has an active override, surface that in the popover so users aren't
+  // confused about why their toolbar changes aren't taking effect (they're
+  // being overridden by the resolution logic, not lost).
+  private readonly currentEntityOverrideEntityType = computed<'LIBRARY' | 'SHELF' | 'MAGIC_SHELF' | null>(() => {
+    switch (this.entityType()) {
+      case EntityType.LIBRARY: return 'LIBRARY';
+      case EntityType.SHELF: return 'SHELF';
+      case EntityType.MAGIC_SHELF: return 'MAGIC_SHELF';
+      default: return null;
+    }
+  });
+
+  readonly currentEntityOverride = computed<EntityViewPreferenceOverride | undefined>(() => {
+    const overrideEntityType = this.currentEntityOverrideEntityType();
+    const entity = this.entity();
+    if (!overrideEntityType || !entity?.id) return undefined;
+
+    const overrides = this.userService.currentUser()?.userSettings?.entityViewPreferences?.overrides;
+    return findEntityOverride(overrides, overrideEntityType, entity.id);
+  });
+
+  readonly hasColumnsOverride = computed(() =>
+    this.currentEntityOverride()?.preferences?.columns !== undefined
+  );
+
+  readonly hasSortOverride = computed(() => {
+    const preferences = this.currentEntityOverride()?.preferences;
+    return preferences?.sortCriteria !== undefined || preferences?.sortKey !== undefined;
+  });
+
   readonly hasSearchTerm = computed(() => this.searchTerm().trim().length > 0);
 
   readonly sortCriteriaCount = computed(() => this.bookSorter.selectedSortCriteria.length);
@@ -625,8 +674,11 @@ export class BookBrowserComponent implements AfterViewInit {
       this.parsedFilters = parseResult.filters;
 
       this.entityViewPreferences = currentUser.userSettings?.entityViewPreferences;
-      this.columnPreferenceService.initPreferences(currentUser.userSettings?.tableColumnPreference);
-      this.visibleColumns.set(this.columnPreferenceService.visibleColumns);
+      this.visibleColumns.set(
+        this.columnPreferenceService
+          .resolveVisibleFields(this.entityViewPreferences, entityInfo.entityType, entityInfo.entityId, currentUser.userSettings?.tableColumnPreference)
+          .map(field => ({field, header: this.columnPreferenceService.headerFor(field)}))
+      );
 
       const visibleFields = currentUser.userSettings?.visibleSortFields ?? DEFAULT_VISIBLE_SORT_FIELDS;
       const sortOptionsByField = new Map(this.bookSorter.sortOptions.map(o => [o.field, o]));
@@ -678,11 +730,70 @@ export class BookBrowserComponent implements AfterViewInit {
     this.sidebarFilterTogglePrefService.toggle();
   }
 
-  onVisibleColumnsChange(selected: { field: string; header: string }[]): void {
-    const allFields = this.columnPreferenceService.allColumns.map(column => column.field);
-    this.visibleColumns.set(selected.sort(
-      (a, b) => allFields.indexOf(a.field) - allFields.indexOf(b.field)
-    ));
+  onVisibleColumnsChange(selected: TableColumnOption[]): void {
+    this.visibleColumns.set(selected);
+  }
+
+  onSaveColumnConfig(columns: TableColumnOption[]): void {
+    const entityType = this.entityType();
+    if (!entityType) return;
+
+    const user = this.userService.getCurrentUser();
+    if (!user) return;
+    const entity = this.entity();
+
+    const fields = columns.map(c => c.field);
+
+    const prefs: EntityViewPreferences = structuredClone(
+      user.userSettings.entityViewPreferences ?? {global: {sortKey: 'title', sortDir: 'ASC', view: 'GRID', coverSize: 1.0, seriesCollapsed: false, overlayBookType: true}, overrides: []}
+    );
+
+    if (entityType === EntityType.ALL_BOOKS || entityType === EntityType.UNSHELVED) {
+      prefs.global = {
+        ...prefs.global,
+        columns: fields
+      };
+    } else {
+      if (!entity) return;
+      if (!prefs.overrides) prefs.overrides = [];
+
+      let overrideEntityType: 'LIBRARY' | 'SHELF' | 'MAGIC_SHELF';
+      switch (entityType) {
+        case EntityType.LIBRARY: overrideEntityType = 'LIBRARY'; break;
+        case EntityType.SHELF: overrideEntityType = 'SHELF'; break;
+        case EntityType.MAGIC_SHELF: overrideEntityType = 'MAGIC_SHELF'; break;
+        default: return;
+      }
+
+      const existingOverride = findEntityOverride(prefs.overrides, overrideEntityType, entity.id);
+
+      if (existingOverride) {
+        existingOverride.preferences = {
+          ...existingOverride.preferences,
+          columns: fields
+        };
+      } else {
+        prefs.overrides.push({
+          entityType: overrideEntityType,
+          entityId: entity.id!,
+          preferences: {
+            columns: fields,
+            coverSize: 1.0,
+            seriesCollapsed: false,
+            overlayBookType: true
+          }
+        });
+      }
+    }
+
+    this.userService.updateUserSetting(user.id, 'entityViewPreferences', prefs);
+    this.messageService.add({
+      severity: 'success',
+      summary: this.t.translate('book.browser.toast.sortSavedSummary'),
+      detail: entityType === EntityType.ALL_BOOKS || entityType === EntityType.UNSHELVED
+        ? this.t.translate('book.browser.toast.sortSavedGlobalDetail')
+        : this.t.translate('book.browser.toast.sortSavedEntityDetail', {entityType: entityType.toLowerCase()})
+    });
   }
 
   onCheckboxClicked(event: CheckboxClickEvent): void {
@@ -839,10 +950,10 @@ export class BookBrowserComponent implements AfterViewInit {
     this.userService.updateUserSetting(user.id, 'entityViewPreferences', prefs);
     this.messageService.add({
       severity: 'success',
-      summary: this.t.translate('book.browser.toast.sortSavedSummary'),
+      summary: this.t.translate('book.browser.toast.columnsSavedSummary'),
       detail: entityType === EntityType.ALL_BOOKS || entityType === EntityType.UNSHELVED
-        ? this.t.translate('book.browser.toast.sortSavedGlobalDetail')
-        : this.t.translate('book.browser.toast.sortSavedEntityDetail', {entityType: entityType.toLowerCase()})
+        ? this.t.translate('book.browser.toast.columnsSavedGlobalDetail')
+        : this.t.translate('book.browser.toast.columnsSavedEntityDetail', {entityType: entityType.toLowerCase()})
     });
   }
 
